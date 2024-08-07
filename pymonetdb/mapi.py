@@ -422,7 +422,9 @@ class Connection(object):
         """ disconnect from the monetdb server """
         logger.info("Closing connection")
         self.state = STATE_INIT
-        self.socket.close()
+        if self.socket:
+            self.socket.close()
+            self.socket = None
 
     def _sabotage(self):
         """ Kill the connection in a way that the server is sure to recognize as an error"""
