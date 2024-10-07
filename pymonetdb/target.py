@@ -29,8 +29,9 @@ KNOWN = set([
     'sock', 'sockdir', 'sockprefix', 'cert', 'certhash', 'clientkey', 'clientcert',
     'user', 'password', 'language', 'autocommit', 'schema', 'timezone',
     'binary', 'replysize', 'fetchsize', 'maxprefetch',
-    'connect_timeout']
-)
+    'connect_timeout',
+    'client_info', 'client_application', 'client_remark',
+])
 IGNORED = set(['hash', 'debug', 'logfile'])
 VIRTUAL = set([
     'connect_scan', 'connect_sockdir',
@@ -72,7 +73,10 @@ _DEFAULTS = dict(
     replysize=None,
     fetchsize=None,
     maxprefetch=None,
-    connect_timeout=0,
+    connect_timeout=-1,
+    client_info=True,
+    client_application="",
+    client_remark="",
     dangerous_tls_nocheck="",
 )
 
@@ -100,6 +104,8 @@ class urlparam:
             self.parser = int
         elif typ == 'bool':
             self.parser = parse_bool
+        elif typ == 'float':
+            self.parser = float
         else:
             raise ValueError(f"invalid type '{typ}'")
         self.__doc__ = doc
@@ -171,7 +177,11 @@ class Target:
     replysize = urlparam('replysize', 'integer',
                          'rows beyond this limit are retrieved on demand, <1 means unlimited')
     maxprefetch = urlparam('maxprefetch', 'integer', 'specific to pymonetdb')
-    connect_timeout = urlparam('connect_timeout', 'integer', 'abort if connect takes longer than this')
+    connect_timeout = urlparam('connect_timeout', 'float',
+                               'abort if connect takes longer than this; 0=block indefinitely; -1=system default')
+    client_info = urlparam('client_info', 'bool', 'whether to send client details when connecting')
+    client_application = urlparam('client_application', 'string', 'application name to send in client details')
+    client_remark = urlparam('client_remark', 'string', 'application name to send in client details')
     dangerous_tls_nocheck = urlparam(
         'dangerous_tls_nocheck', 'bool',
         'comma separated certificate checks to skip, host: do not verify host, cert: do not verify certificate chain')
@@ -271,6 +281,8 @@ class Target:
             if len(parts) > 3:
                 self.table = strict_percent_decode('table name', parts[3])
 
+        if not parsed.query:
+            return
         for key, value in parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True):
             if not key:
                 raise ValueError("empty key is not allowed")
@@ -423,6 +435,10 @@ class Target:
         # 9. If **clientcert** is set, **clientkey** must also be set.
         if self.clientcert and not self.clientkey:
             raise ValueError("clientcert can only be used together with clientkey")
+
+        # 10. pymonetdb-specific
+        if self.connect_timeout < 0 and self.connect_timeout != -1:
+            raise ValueError("connection_timeout must either be >= 0 or -1")
 
     @property
     def connect_scan(self):

@@ -9,18 +9,22 @@ This is the python implementation of the mapi protocol.
 
 
 import os
+import platform
 import re
 import socket
 import logging
 import struct
 import hashlib
 import ssl
+import sys
 import typing
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
+# import pymonetdb
 from pymonetdb.exceptions import OperationalError, DatabaseError, \
     ProgrammingError, NotSupportedError, IntegrityError
 from pymonetdb.target import Target
+from pymonetdb import __version__
 
 if typing.TYPE_CHECKING:
     from pymonetdb.filetransfer.downloads import Downloader
@@ -98,6 +102,7 @@ class Connection(object):
     is_raw_control: Optional[bool] = None
     handshake_options_callback: Optional[Callable[[int], List['HandshakeOption']]] = None
     remaining_handshake_options: List['HandshakeOption'] = []
+    clientinfo: Optional[Dict[str, Optional[str]]] = None
     uploader: Optional['Uploader'] = None
     downloader: Optional['Downloader'] = None
     stashed_buffer: Optional[bytearray] = None
@@ -154,6 +159,28 @@ class Connection(object):
         # handle during the handshake
         self.state = STATE_READY
 
+        if self.clientinfo:
+            lang = self.target.language
+            if lang == 'sql':
+                cmd = "Xclientinfo " + "".join(
+                    f"{k}={v or ''}\n"
+                    for k, v in self.clientinfo.items()
+                    if v is None or '\n' not in v
+                )
+            elif lang == 'mal' or lang == 'msql':
+                cmd = "\n".join(
+                    f'clients.setinfo("{mal_escape(k)}", "{mal_escape(v or "")}");'
+                    for k, v in self.clientinfo.items()
+                    if v is None or '\n' not in v
+                )
+            else:
+                cmd = None
+            if cmd:
+                try:
+                    self.cmd(cmd)
+                except OperationalError as e:
+                    logger.warning(f"Server rejected clientinfo: {e}")
+
         for opt in self.remaining_handshake_options:
             opt.fallback(opt.value)
 
@@ -165,11 +192,6 @@ class Connection(object):
                 # No, we need to make a new connection
                 self.try_connect()
                 assert self.socket is not None
-
-                if self.target.connect_timeout:
-                    # The new socket's timeout was overridden during the
-                    # connect. Put it back.
-                    self.socket.settimeout(socket.getdefaulttimeout())
 
                 # Once connected, deal with the file handle passing protocol,
                 # AND with TLS. Note that these are necessarily exclusive, we
@@ -201,17 +223,32 @@ class Connection(object):
 
     def try_connect(self):  # noqa C901
         err = None
-        timeout = self.target.connect_timeout
+
+        default_timeout = socket.getdefaulttimeout()
+        if default_timeout == 0:
+            raise ProgrammingError('Global socket timeout set to non-blocking, pymonetdb does not support that')
+        t = self.target.connect_timeout
+        if t == -1:
+            # This is the only negative value allowed by Target.validate().
+            # It means 'leave it alone'
+            set_timeout = False
+        else:
+            set_timeout = True
+            # Our settings and and socket.settimeout() assign different meanings to
+            # value '0'
+            custom_timeout = None if t == 0 else t
 
         sock = self.target.connect_unix
         if sock and hasattr(socket, 'AF_UNIX'):
             s = socket.socket(socket.AF_UNIX)
-            if timeout:
-                s.settimeout(float(timeout))
             try:
+                if set_timeout:
+                    s.settimeout(custom_timeout)
                 s.connect(sock)
                 # it worked!
                 logger.debug(f"Connected to {sock}")
+                if set_timeout:
+                    s.settimeout(default_timeout)
                 self.socket = s
                 self.is_tcp = False
                 return
@@ -225,14 +262,16 @@ class Connection(object):
             addrs = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
             for fam, typ, proto, cname, addr in addrs:
                 s = socket.socket(fam, typ, proto)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                if timeout:
-                    s.settimeout(float(timeout))
                 try:
+                    if set_timeout:
+                        s.settimeout(custom_timeout)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     s.connect(addr)
                     # it worked!
                     logger.debug(f"Connected to {addr[0]} port {addr[1]}")
+                    if set_timeout:
+                        s.settimeout(default_timeout)
                     self.socket = s
                     self.is_tcp = True
                     return
@@ -580,11 +619,26 @@ class Connection(object):
             assert part.startswith('BINARY=')
             self.binexport_level = int(part[7:])
 
+        if len(challenges) >= 10:
+            part = challenges[9]
+            assert part == "CLIENTINFO"
+            if self.target.client_info:
+                application_name = self.target.client_application
+                if not application_name and sys.argv:
+                    application_name = os.path.basename(sys.argv[0])
+                self.clientinfo = dict(
+                    ClientHostname=platform.node() or None,
+                    ApplicationName=application_name or None,
+                    ClientLibrary=f"pymonetdb {__version__}",
+                    ClientRemark=self.target.client_remark or None,
+                    ClientPid=str(os.getpid()),
+                )
+
         callback = self.handshake_options_callback
         handshake_options = callback(self.binexport_level) if callback else []
 
+        response += "FILETRANS:"
         if len(challenges) >= 7:
-            response += "FILETRANS:"
             options_level = 0
             for part in challenges[6].split(","):
                 if part.startswith("sql="):
@@ -766,6 +820,11 @@ class Connection(object):
     def set_downloader(self, downloader: "Downloader"):
         """Register the given Downloader, or None to deregister"""
         self.downloader = downloader
+
+
+def mal_escape(s):
+    mapping = {'\n': r'\n', '\t': r'\t', '"': r'\"', '\\': r'\\'}
+    return "".join(mapping.get(c, c) for c in s)
 
 
 # When all supported Python versions support it we can enable @dataclass here.
