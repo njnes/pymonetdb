@@ -100,9 +100,9 @@ class Cursor(object):
         self._can_bindecode = None
         self._bindecoders = None
 
-        # This read-only attribute indicates at which row
+        # This read-only attribute indicates at which row of a result set
         # we currently are
-        self.rownumber = -1
+        self.rownumber = None
 
         self._executed = None
 
@@ -339,6 +339,9 @@ class Cursor(object):
 
     def nextset(self) -> Optional[bool]:
         if not self._next_result_sets:
+            self._query_id = None
+            self.description = None
+            self.rownumber = None
             return None
 
         (self._query_id, self.rowcount, self.description, self._rows) = self._next_result_sets[0]

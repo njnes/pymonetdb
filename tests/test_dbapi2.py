@@ -655,6 +655,48 @@ class DatabaseAPI20Test(unittest.TestCase):
         finally:
             con.close()
 
+    def test_rownumber(self):
+        con = self._connect()
+        con.set_autocommit(False)
+
+        cur = con.cursor()
+        cur.execute("DROP TABLE IF EXISTS foo; CREATE TABLE foo(i INT);")
+        cur.close()
+
+        cur = con.cursor()
+
+        # initially None
+        self.assertIsNone(cur.rownumber)
+
+        # set by result set
+        cur.execute("SELECT value FROM sys.generate_series(0, 3)")
+        self.assertEqual(0, cur.rownumber)
+        self.assertIsNotNone(cur.fetchone())
+        self.assertEqual(1, cur.rownumber)
+        self.assertIsNotNone(cur.fetchone())
+        self.assertEqual(2, cur.rownumber)
+        self.assertIsNotNone(cur.fetchone())
+        self.assertEqual(3, cur.rownumber)
+        # at the end:
+        self.assertIsNone(cur.fetchone())
+        self.assertEqual(3, cur.rownumber)
+
+        # cleared if no result set
+        cur.execute("DROP TABLE foo")
+        self.assertIsNone(cur.rownumber)
+
+        # reset on next result set
+        cur.execute("SELECT 42; SELECT 99;")
+        self.assertEqual(0, cur.rownumber)
+        self.assertIsNotNone(cur.fetchone())
+        self.assertEqual(1, cur.rownumber)
+        #
+        self.assertTrue(cur.nextset())
+        self.assertEqual(0, cur.rownumber)
+        #
+        self.assertFalse(cur.nextset())
+        self.assertIsNone(cur.rownumber)
+
     def test_arraysize(self):
         con = self._connect()
         try:

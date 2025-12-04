@@ -4,12 +4,19 @@ New features since 1.9.0
 
 Bug fixes
 
-* `inet4` and `inet6` values could be fetched into Python
-  [ipaddress](https://docs.python.org/3/library/ipaddress.html) values, but such values could not yet be passed to `Cursor.execute()`.
+* The `inet4` and `inet6` MonetDB types correspond to the Python type
+  [`ipaddress`](https://docs.python.org/3/library/ipaddress.html).
+  This was already support in result sets, but now they can also be passed to
+  `Cursor.execute()`.
 
 * It is normal to encounter some No-such-database errors while scanning /tmp
-  for the right server socket. These errors should not be logged at level ERROR.
+  for the right server socket. These errors are no longer logged at level ERROR.
 
+* According to [PEP 249](https://peps.python.org/pep-0249/#rownumber),
+  `Cursor.rownumber` must be `None` when not in a result set.
+  This is now the case.
+  It used to be -1 on Cursor creation and whatever the last result set left it
+  at afterward.
 
 # 1.9.0
 
