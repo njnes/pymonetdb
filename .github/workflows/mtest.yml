@@ -1,23 +1,23 @@
 name: Try the MonetDB test suite
 on:
   push:
-    branches: [ master, monetdbs ]
+    branches: [ master ]
   pull_request:
 
 jobs:
   mtest:
     runs-on: ubuntu-latest
     env:
-      SRC_URL: "https://www.monetdb.org/downloads/sources/Aug2024/MonetDB-11.51.3.tar.xz"
-      SRC_SUM: "2f4499349e7917e12ec5d2d33d477bb50b4a302485cfcce1ca20129c7e791264"
-      TESTS_URL: "https://www.monetdb.org/downloads/sources/Aug2024/MonetDB-tests-11.51.3.tar.xz"
-      TESTS_SUM: "a770b6b8ece0d1f363356d41d358ce143593d5b54382134687e3d4dd9d58f821"
+      SRC_URL: "https://www.monetdb.org/downloads/sources/Dec2025-SP2/MonetDB-11.55.5.tar.xz"
+      SRC_SUM: "480c921a45b54c610dee9a17147f0e89ae74c31516b9250e5c8f2371e1bd70c2"
+      TESTS_URL: "https://www.monetdb.org/downloads/sources/Dec2025-SP2/MonetDB-tests-11.55.5.tar.xz"
+      TESTS_SUM: "43c022698f5fa43e5b92ac3f6d33be6459a38d7af5ada6a95fad2dd80cd96d64"
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
 
       - name: Install packages
-        run: sudo apt-get -qq update && sudo apt-get -qq install -y tzdata python3 python3-venv curl xz-utils bison cmake gcc pkg-config ninja-build
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y tzdata python3 python3-venv curl xz-utils build-essential ninja-build bison cmake gcc pkg-config libbz2-dev liblz4-dev libpcre2-dev libreadline-dev liblzma-dev libssl-dev zlib1g-dev libasan5 libcfitsio-dev libcmocka-dev libcurl4-gnutls-dev libgdal-dev libgeos-dev libnetcdf-dev libproj-dev libxml2-dev python3-dev python3-numpy r-base-dev unixodbc-dev valgrind
 
       - name: Check out
         uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
         run: . ./venv/bin/activate && cmake -GNinja -S monetdb -B BUILD --install-prefix="$PWD/INST" -DCMAKE_INSTALL_MESSAGE=NEVER && echo && cmake --build BUILD --target install
 
       - name: Test MonetDB
-        run: PATH="$PWD/INST/bin:$PATH"; . ./venv/bin/activate && cd monetdb && time Mtest.py -v
+        run: PATH="$PWD/INST/bin:$PATH"; . ./venv/bin/activate && cd monetdb && time Mtest.py -v --parallel="$(nproc)"
 
       - name: Store mtest output
         if: failure()
