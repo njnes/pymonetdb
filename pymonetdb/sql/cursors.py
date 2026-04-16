@@ -39,7 +39,7 @@ class Cursor(object):
     description: Optional[List[Description]]
     _can_bindecode: Optional[bool]
     _bindecoders: Optional[List['pythonizebin.BinaryDecoder']]
-    rownumber: int
+    rownumber: Optional[int]
     _executed: Optional[str]
     _offset: int
     _rows: List[Tuple]
